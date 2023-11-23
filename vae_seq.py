@@ -2,14 +2,13 @@ import os
 import pickle
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Input, Conv2D, ReLU, BatchNormalization, Flatten, Dense, Reshape, Conv2DTranspose, Activation, Lambda
+from tensorflow.keras.layers import InputLayer
 from tensorflow.keras import backend as K
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.losses import MeanSquaredError
 
 import tensorflow as tf
-print(tf.executing_eagerly())
-tf.compat.v1.disable_eager_execution()
-print(tf.executing_eagerly())
+
 
 class VAE:
     """
@@ -34,7 +33,6 @@ class VAE:
         # Define components of autoencoder
         self.encoder = None
         self.decoder = None
-        # Build autoencoder model
         self.model = None
 
         self._num_conv_layers = len(conv_filters)
@@ -69,6 +67,7 @@ class VAE:
             epochs=num_epochs,
             shuffle=True
         )
+
 
     def save(self, save_folder="."):
         self._create_folder_if_it_doesnt_exist(save_folder)
@@ -162,38 +161,27 @@ class VAE:
 
     # -------------- ENCODER ----------------
     def _build_encoder(self):
-        # get model input
-        encoder_input = self._add_encoder_input()
-        self._model_input = encoder_input
-        # pass input to convolutional layers
-        conv_layers = self._add_conv_layers(encoder_input)
-        # returns stack of conv layers as well as bottleneck layer
-        bottleneck = self._add_bottleneck(conv_layers)
-        # pass input and stack of layers with bottleneck architecture
-        # set encoder as the final model attribute
-        self.encoder = Model(encoder_input, bottleneck, name="encoder")
 
-
-    def _add_encoder_input(self):
-        
-        return Input(shape=self.input_shape, name="encoder_input")
-    
-
-    def _add_conv_layers(self, encoder_input):
-        """
-        Creates all convolutional blocks in encoder.
-        """
-        x = encoder_input
+        encoder = tf.keras.Sequential()
+        # get input layer dimensions from input shape
+        encoder.add(InputLayer(input_shape=self.input_shape, name="encoder_input"))
+        # add convolutional layers, relu activation and batch normalization
         for layer_index in range(self._num_conv_layers):
-            x = self._add_conv_layer(layer_index, x)
-        
-        return x
+            encoder.add(self._get_conv_layer(layer_index))
+            encoder.add(ReLU(name=f"encoder_relu_{layer_index+1}"))
+            encoder.add(BatchNormalization(name=f"encoder_bn_{layer_index+1}"))
+
+        # get shape of last layer -> save as self._shape_before_bottleneck
+        self._shape_before_bottleneck = K.int_shape(encoder.layers[-1].output)[1:] # [batch_size, width, height, channels]
+        # flatten to prepare for bottleneck
+        encoder.add(Flatten())
+
+        self.encoder = encoder
     
 
-    def _add_conv_layer(self, layer_index, x):
+    def _get_conv_layer(self, layer_index):
         """
-        Adds a convolutional block to a graph of layers, consisting of
-        conv 2d + ReLU + batch normalization.
+        Returns a convolutional layer parametrized by the index of the layer.
         """
         layer_number = layer_index + 1
         conv_layer = Conv2D(
@@ -203,14 +191,11 @@ class VAE:
             padding="same",
             name=f"encoder_conv_layer_{layer_number}"
         )
-        x = conv_layer(x)
-        x = ReLU(name=f"encoder_relu_{layer_number}")(x)
-        x = BatchNormalization(name=f"encoder_bn_{layer_number}")(x)
         
-        return x
+        return conv_layer
     
 
-    def _add_bottleneck(self, x):
+    def _encode(self, x):
         """
         Flatten data and add bottleneck with gaussian sampling (latent space).
         The data point is sampled from a gaussian distribution in the
@@ -226,73 +211,55 @@ class VAE:
 
             return sampled_point
     
-        # store information about shape of data (ignore batch size) before flattening
-        self._shape_before_bottleneck = K.int_shape(x)[1:] # [batch_size, width, height, channels]
-        # flatten  
-        x = Flatten()(x)
 
         # mu, log_variance to sample from gaussian distribution (define distribution)
         # no sequential graph since mu and log_variance are both applied to previous graph (split up) 
-        self.mu = Dense(self.latent_space_dim, name="mu")(x)
-        self.log_variance = Dense(self.latent_space_dim, name="log_variance")(x)
+        self.mu, self.log_variance = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
 
         #print(self.mu, self.log_variance)
         # sample data point from gaussian distribution
         # wrap functions within graph with lambda layer
-        x = Lambda(sample_point_from_normal_distribution, name="encoder_output")([self.mu, self.log_variance])
+        z = Lambda(sample_point_from_normal_distribution, name="encoder_output")([self.mu, self.log_variance])
 
-        return x
+        return z
         
 
     # -------------- DECODER ----------------
     def build_decoder(self):
-        # bottleneck layer will be input to the decoder
-        decoder_input = self._add_decoder_input()
-        dense_layer = self._add_dense_layer(decoder_input)
-        reshape_layer = self._add_reshape_layer(dense_layer)
-        conv_transpose_layers = self._add_conv_transpose_layers(reshape_layer)
-        decoder_output = self._add_decoder_output(conv_transpose_layers)
+
+        decoder = tf.keras.Sequential()
+        # get input layer dimensions from laten space shape (enoconder output)
+        decoder.add(InputLayer(input_shape=self.latent_space_dim, name="decoder_input"))
+        # add dense layer with shape of last layer before flattening in encoder
+        decoder.add(self._get_dense_decoder_layer())
+        # reshape to shape before flattening in encoder
+        decoder.add(Reshape(self._shape_before_bottleneck))
+
+        for layer_idx in reversed(range(1, self._num_conv_layers)):
+            decoder.add(self._get_conv_transpose_layer(layer_idx))
+             # only add ReLU and batch normalization if this is not the last layer
+            layer_num = self._num_conv_layers - layer_idx
+            if layer_idx < self._num_conv_layers - 1:
+                decoder.add(ReLU(name=f"decoder_relu_{layer_num}"))
+                decoder.add(BatchNormalization(name=f"decoder_bn_{layer_num}"))
+
+        # add final layer with sigmoid activation
+        decoder.add(self._get_decoder_output())
+        decoder.add(Activation("sigmoid"))
         # set decoder as the final model attribute
-        self.decoder = Model(decoder_input, decoder_output, name="decoder")
-
-
-    def _add_decoder_input(self):
-
-        return Input(shape=self.latent_space_dim, name="decoder_input")
+        self.decoder = decoder
     
 
-    def _add_dense_layer(self, decoder_input):  
+    def _get_dense_decoder_layer(self):  
         # we want the same number as after the flattening in the encoder 
         # product of all dimensions except the first (batch size) gives length of dense layer
         num_neurons = K.prod(self._shape_before_bottleneck)
-        dense_layer = Dense(K.get_value(num_neurons), name="decoder_dense")(decoder_input)
+        dense_layer = Dense(K.get_value(num_neurons), name="decoder_dense")
 
         return dense_layer
-    
-
-    def _add_reshape_layer(self, dense_layer):
-        # result should be same shape as before flattening in the encoder
-        # we can use the shape stored in self._shape_before_bottleneck
-        reshape_layer = Reshape(self._shape_before_bottleneck)(dense_layer)
-
-        return reshape_layer
 
 
-    def _add_conv_transpose_layers(self, x):
-        """
-        Add concolutional transpose blocks 
-        (conv_transpose + ReLU + batch normalization).
-        """
-        # loop through all conv layers from encoder in reverse order 
-        # (stop at first layer, special case for layer 1)
-
-        for layer_idx in reversed(range(1, self._num_conv_layers)):
-            x = self._add_conv_transpose_layer(layer_idx, x)
-        
-        return x
-    
-
-    def _add_conv_transpose_layer(self, layer_idx, x):
+    def _get_conv_transpose_layer(self, layer_idx):
         # layer number is asending as layer idx is descending
         layer_num = self._num_conv_layers - layer_idx
         conv_transpose_layer = Conv2DTranspose(
@@ -302,17 +269,12 @@ class VAE:
             padding = "same", 
             name=f"decoder_conv_transpose_layer_{layer_num}"
         )
-        x = conv_transpose_layer(x)
-        # only add ReLU and batch normalization if this is not the last layer
-        if layer_idx < self._num_conv_layers - 1:
-            x = ReLU(name=f"decoder_relu_{layer_num}")(x)
-            x = BatchNormalization(name=f"decoder_bn_{layer_num}")(x)
-        
-        return x
+       
+        return conv_transpose_layer
 
 
-    def _add_decoder_output(self, x):
-        # add final layer with sigmoid activation
+    def _get_decoder_output(self):
+        # add final layer
         conv_transpose_layer = Conv2DTranspose(
             filters=1,
             kernel_size=self.conv_kernels[0],
@@ -320,21 +282,26 @@ class VAE:
             padding="same",
             name="decoder_output"
         )
-        x = conv_transpose_layer(x)
-        # apply sigmoid activation
-        x = Activation("sigmoid")(x)
 
-        return x
+        return conv_transpose_layer
 
     
+    def _decode(self, z):
+        # pass data through decoder
+        reconstruction = self.decoder(z)
+
+        return reconstruction
+    
+    
     # -------------- AUTOENCODER ----------------
-    def _build_autoencoder(self):
-        # model input
-        model_input = self._model_input
-        # model output is result of data through encoder and decoder
-        model_output = self.decoder(self.encoder(model_input))
-        # define model
-        self.model = Model(model_input, model_output, name="autoencoder")
+    def _build_autoencoder(self, x):
+        
+        # passing through encoder and sampling from latent space
+        model_input = self._encode(x)
+        # passing through decoder and reconstructing
+        model_output = self._decode(model_input)
+
+        return Model(x, model_output, name="autoencoder")
 
 
 if __name__ == "__main__":
