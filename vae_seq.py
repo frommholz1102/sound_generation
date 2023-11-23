@@ -215,18 +215,16 @@ class VAE:
 
         # mu, log_variance to sample from gaussian distribution (define distribution)
         # no sequential graph since mu and log_variance are both applied to previous graph (split up) 
-        mu, log_variance = tf.split(x, num_or_size_splits=2, axis=1)
+        self.mu = Dense(self.latent_space_dim, name="mu")(x)
+        self.log_variance = Dense(self.latent_space_dim, name="log_variance")(x)
 
-        print("mu", mu, K.int_shape(mu))
-        print("log_variance", log_variance, K.int_shape(log_variance))
+        print("mu", self.mu, K.int_shape(self.mu))
+        print("log_variance", self.log_variance, K.int_shape(self.log_variance))
         
         # sample data point from gaussian distribution
         # wrap functions within graph with lambda layer
-        z = Lambda(sample_point_from_normal_distribution, name="encoder_output")([mu, log_variance])
+        z = Lambda(sample_point_from_normal_distribution, name="encoder_output")([self.mu, self.log_variance])
 
-        # save mu and log_variance as attributes
-        self.mu = mu
-        self.log_variance = log_variance
 
         return z
         
@@ -311,7 +309,7 @@ class VAE:
         # passing through decoder
         model_output = self.decoder(z)
 
-        return Model(inputs=x, output=model_output, name="autoencoder")
+        self.model = Model(inputs=x, outputs=model_output, name="autoencoder")
 
 
 if __name__ == "__main__":
