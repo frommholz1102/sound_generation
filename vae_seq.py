@@ -195,7 +195,8 @@ class VAE:
         return conv_layer
     
 
-    def _encode(self, x):
+    # -------------- BOTTLENECK ----------------
+    def _sample_from_latent_space(self, x):
         """
         Flatten data and add bottleneck with gaussian sampling (latent space).
         The data point is sampled from a gaussian distribution in the
@@ -205,7 +206,7 @@ class VAE:
         def sample_point_from_normal_distribution(args):
             mu, log_variance = args
             # sample epsilon from standard normal distribution
-            epsilon = K.random_normal(shape=K.shape(self.mu), mean=0., stddev=1.)
+            epsilon = K.random_normal(shape=K.shape(mu), mean=0., stddev=1.)
             # sample point from normal distribution
             sampled_point = mu + K.exp(log_variance / 2) * epsilon
 
@@ -214,12 +215,18 @@ class VAE:
 
         # mu, log_variance to sample from gaussian distribution (define distribution)
         # no sequential graph since mu and log_variance are both applied to previous graph (split up) 
-        self.mu, self.log_variance = tf.split(self.encoder(x), num_or_size_splits=2, axis=1)
+        mu, log_variance = tf.split(x, num_or_size_splits=2, axis=1)
 
-        #print(self.mu, self.log_variance)
+        print("mu", mu, K.int_shape(mu))
+        print("log_variance", log_variance, K.int_shape(log_variance))
+        
         # sample data point from gaussian distribution
         # wrap functions within graph with lambda layer
-        z = Lambda(sample_point_from_normal_distribution, name="encoder_output")([self.mu, self.log_variance])
+        z = Lambda(sample_point_from_normal_distribution, name="encoder_output")([mu, log_variance])
+
+        # save mu and log_variance as attributes
+        self.mu = mu
+        self.log_variance = log_variance
 
         return z
         
@@ -267,7 +274,7 @@ class VAE:
             kernel_size = self.conv_kernels[layer_idx],
             strides = self.conv_strides[layer_idx],
             padding = "same", 
-            name=f"decoder_conv_transpose_layer_{layer_num}"
+            name=f"decoder_conv_transpose_layer_{layer_num}", 
         )
        
         return conv_transpose_layer
@@ -294,14 +301,17 @@ class VAE:
     
     
     # -------------- AUTOENCODER ----------------
-    def _build_autoencoder(self, x):
-        
-        # passing through encoder and sampling from latent space
-        model_input = self._encode(x)
-        # passing through decoder and reconstructing
-        model_output = self._decode(model_input)
+    def _build_autoencoder(self):
 
-        return Model(x, model_output, name="autoencoder")
+        # Define the input layer
+        model_input = Input(shape=self.input_shape)
+        # passing through encoder and sampling from latent space
+        x = self.encoder(model_input)
+        z = self._sample_from_latent_space(x)
+        # passing through decoder
+        model_output = self.decoder(z)
+
+        return Model(inputs=x, output=model_output, name="autoencoder")
 
 
 if __name__ == "__main__":

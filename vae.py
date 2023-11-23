@@ -239,6 +239,7 @@ class VAE:
         #print(self.mu, self.log_variance)
         # sample data point from gaussian distribution
         # wrap functions within graph with lambda layer
+        
         x = Lambda(sample_point_from_normal_distribution, name="encoder_output")([self.mu, self.log_variance])
 
         return x
