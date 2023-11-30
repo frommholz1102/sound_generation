@@ -6,7 +6,7 @@ from vae import VAE
 
 LEARNING_RATE = 0.0005
 BATCH_SIZE = 64
-EPOCHS = 150
+EPOCHS = 1
 
 
 def load_mnist():
@@ -36,7 +36,9 @@ def fsdd(spectrograms_path):
     x_train = np.array(x_train)        
     # model expects (n_t_frames, n_f_bins, 1) 3 dimensions (colored images)
     x_train = x_train[..., np.newaxis] 
-    
+    # convert to float32
+    x_train = x_train.astype("float32")
+        
     return x_train
 
 
@@ -62,6 +64,7 @@ if __name__ == "__main__":
     # import mnist dataset
     x_train = fsdd("fsdd/spectrograms/")
     print(x_train.shape)
+    print(x_train[0])
     print('dataset loaded')
     autoencoder = train(x_train, LEARNING_RATE, BATCH_SIZE, EPOCHS)
 

@@ -3,7 +3,7 @@ import pickle
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Input, Conv2D, ReLU, BatchNormalization, Flatten, Dense, Reshape, Conv2DTranspose, Activation, Lambda
 from tensorflow.keras import backend as K
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.losses import MeanSquaredError
 
 import tensorflow as tf
@@ -35,7 +35,6 @@ class VAE:
         self.conv_kernels = conv_kernels # [3, 5, 3]
         self.conv_strides = conv_strides # [1, 2, 2]
         self.latent_space_dim = latent_space_dim # 2
-        self.reconstruction_loss_weight = 1000
 
         # Define components of autoencoder
         self.encoder = None
@@ -62,19 +61,20 @@ class VAE:
         # metrics to observe during training
         optimizer = Adam(learning_rate=learning_rate)
         self.model.compile(optimizer=optimizer, 
-                           loss=self._calculate_combined_loss, 
-                           metrics=[self._calculate_reconstruction_loss, self._calculate_kl_loss])
+                           loss=None)
+                           #metrics=[self._calculate_reconstruction_loss, self._calculate_kl_loss])
 
 
     def train(self, x_train, batch_size, num_epochs):
         # target data is input data for autoencoders
         self.model.fit(
             x_train,
-            x_train,
+            None,
             batch_size=batch_size,
             epochs=num_epochs,
             shuffle=True
         )
+
 
     def save(self, save_folder="."):
         self._create_folder_if_it_doesnt_exist(save_folder)
@@ -132,33 +132,59 @@ class VAE:
         return autoencoder
     
 
-    def _calculate_combined_loss(self, y_target, y_predicted):
-        # call custom loss functions 
-        reconstruction_loss = self._calculate_reconstruction_loss(y_target, y_predicted)
-        kl_loss = self._calculate_kl_loss(y_target, y_predicted)  
-        # multiply reconstruction loss by weight factor (hyperparameter)
-        combined_loss = self.reconstruction_loss_weight * reconstruction_loss + kl_loss
+    class CustomVAELayer(tf.keras.layers.Layer):
+        """
+        Custom variational autoencoder loss.
+        """
+        def __init__(self, *args, **kwargs):
+            super().__init__(**kwargs)
+            self.mu, self.log_variance = args
+            self.reconstruction_loss_weight = 1000000
+            self.reconstruction_loss = None
+            self.kl_loss = None
+            self.combined_loss = None
 
-        return combined_loss
-    
-
-    def _calculate_reconstruction_loss(self, y_target, y_predicted):
-        # error is difference between ground truth and predicted values
-        error = y_target - y_predicted
-        # mean squared error loss on all axes
-        reconstruction_loss = K.mean(K.square(error), axis=[1, 2, 3])
-
-        return reconstruction_loss
-    
-
-    def _calculate_kl_loss(self, y_target, y_predicted):
-        # custom keras loss function expects y_true and y_pred as arguments
-        # KL divergence loss (closed form)
-        # pull latent space distribution towards standard normal distribution
-        kl_loss = -0.5 * K.sum(1 + self.log_variance - K.square(self.mu) - K.exp(self.log_variance), axis=1)
-
-        return kl_loss
+        def _calculate_combined_loss(self, y_target, y_predicted):
+            # call custom loss functions 
+            reconstruction_loss = self._calculate_reconstruction_loss(y_target, y_predicted)
+            kl_loss = self._calculate_kl_loss(y_target, y_predicted)  
+            # multiply reconstruction loss by weight factor (hyperparameter)
+            combined_loss = self.reconstruction_loss_weight * reconstruction_loss + kl_loss
+            return combined_loss
         
+        def _calculate_reconstruction_loss(self, y_target, y_predicted):
+            # error is difference between ground truth and predicted values
+            error = y_target - y_predicted
+            # mean squared error loss on all axes
+            reconstruction_loss = K.mean(K.square(error), axis=[1, 2, 3])
+            self.reconstruction_loss = reconstruction_loss
+            return reconstruction_loss
+        
+        def _calculate_kl_loss(self, y_target, y_predicted):
+            # custom keras loss function expects y_true and y_pred as arguments
+            # KL divergence loss (closed form)
+            # pull latent space distribution towards standard normal distribution
+            kl_loss = -0.5 * K.sum(1 + self.log_variance - K.square(self.mu) - K.exp(self.log_variance), axis=1)
+            self.kl_loss = kl_loss
+            return kl_loss
+            
+        def get_vae_loss(self, y_target, y_predicted):
+            input_img = y_target
+            output_img = y_predicted
+            # calculate and set internal losses
+            self.combined_loss = self._calculate_combined_loss(input_img, output_img)
+
+        def call(self, inputs):
+            input_img = inputs[0]
+            output_img = inputs[1]
+            self.get_vae_loss(input_img, output_img)
+            self.add_loss(self.combined_loss, inputs=inputs)
+            self.add_metric(self.reconstruction_loss, name="reconstruction_loss", aggregation="mean")
+            self.add_metric(self.kl_loss, name="kl_loss", aggregation="mean")
+            self.add_metric(self.combined_loss, name="combined_loss", aggregation="mean")
+            # We don't use this output.
+            return output_img
+
 
     def _build(self):
         self._build_encoder()
@@ -339,9 +365,16 @@ class VAE:
         # model input
         model_input = self._model_input
         # model output is result of data through encoder and decoder
-        model_output = self.decoder(self.encoder(model_input))
+        decoder_output = self.decoder(self.encoder(model_input))
+        # include custom loss in the model
+        print(decoder_output.shape)
+        model_output = self.CustomVAELayer(self.mu, self.log_variance)([model_input, decoder_output])
+        print(model_output.shape)
         # define model
         self.model = Model(model_input, model_output, name="autoencoder")
+
+
+
 
 
 if __name__ == "__main__":
