@@ -24,11 +24,12 @@ class VAE:
                 conv_strides,
                 latent_space_dim):
         self.input_shape = input_shape # [28, 28, 1]
+        print(self.input_shape)
         self.conv_filters = conv_filters # [2, 4, 8]
         self.conv_kernels = conv_kernels # [3, 5, 3]
         self.conv_strides = conv_strides # [1, 2, 2]
         self.latent_space_dim = latent_space_dim # 2
-        self.reconstruction_loss_weight = 1000
+        self.reconstruction_loss_weight = 1000000
 
         # Define components of autoencoder
         self.encoder = None
@@ -309,7 +310,7 @@ class VAE:
         # passing through decoder
         model_output = self.decoder(z)
 
-        self.model = Model(inputs=x, outputs=model_output, name="autoencoder")
+        self.model = Model(inputs=model_input, outputs=model_output, name="autoencoder")
 
 
 if __name__ == "__main__":
@@ -320,4 +321,3 @@ if __name__ == "__main__":
         conv_strides=(1, 2, 2, 1),
         latent_space_dim=2
     )
-    autoencoder.summary()
