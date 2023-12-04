@@ -5,7 +5,7 @@ import os
 from vae import VAE
 
 LEARNING_RATE = 0.0005
-BATCH_SIZE = 64
+BATCH_SIZE = 50
 EPOCHS = 1
 
 
