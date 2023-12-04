@@ -7,6 +7,7 @@ from vae import VAE
 LEARNING_RATE = 0.0005
 BATCH_SIZE = 50
 EPOCHS = 1
+SPECTROGRAMS_PATH = "fsdd/spectrograms/"
 
 
 def load_mnist():
@@ -62,7 +63,7 @@ def train(x_train, learning_rate, batch_size, epochs):
 if __name__ == "__main__":
 
     # import mnist dataset
-    x_train = fsdd("fsdd/spectrograms/")
+    x_train = fsdd(SPECTROGRAMS_PATH)
     print(x_train.shape)
     print(x_train[0])
     print('dataset loaded')

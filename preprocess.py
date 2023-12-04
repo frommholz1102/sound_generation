@@ -164,7 +164,6 @@ class PreprocessingPipeline:
         norm_feature = self.normalizer.normalize(feature)
         # save
         save_path = self.saver.save_feature(norm_feature, file_path)
-        print(save_path)
         # store min-max values
         self._store_min_max_values(save_path, feature.min(), feature.max())
 
