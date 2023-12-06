@@ -2,6 +2,7 @@ import os
 import pickle
 import numpy as np
 import soundfile as sf
+import tensorflow as tf
 
 from generator import SoundGenerator
 from vae import VAE
@@ -49,8 +50,16 @@ def save_signals(signals, save_dir, sample_rate=22050):
 
 
 if __name__ == "__main__":
+
+    # check if cuda is available
+    print('DEVICES')
+    #tf.config.list_physical_devices('GPU')
+    print(tf.test.gpu_device_name())
+    print('device')
+    print()
+
     # load trained vae and initialize sound generator object
-    vae = VAE.load("model_soundofai")
+    vae = VAE.load("models/model_fsdd")
     sound_generator = SoundGenerator(vae, HOP_LENGTH)
     # load spectrograms and minmax values
     with open(MIN_MAX_VALUES_PATH, "rb") as f:
@@ -66,6 +75,6 @@ if __name__ == "__main__":
     # convert spectrograms to audio waveforms
     original_waveforms = sound_generator.convert_spectrograms_to_audio(sampled_spectrograms, sampled_min_max_values)
     # save generated and original audios
-    save_signals(generated_waveforms, SAVE_DIR_GENERATED)
-    save_signals(original_waveforms, SAVE_DIR_ORIGINAL)
+    #save_signals(generated_waveforms, SAVE_DIR_GENERATED)
+    #save_signals(original_waveforms, SAVE_DIR_ORIGINAL)
     

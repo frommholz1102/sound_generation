@@ -2,7 +2,6 @@ import os
 import pickle
 import librosa
 import numpy as np
-import hub
 
 class Loader:
     """

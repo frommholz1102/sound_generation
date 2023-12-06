@@ -1,4 +1,6 @@
 import librosa
+import numpy as np
+
 from preprocess import MinMaxNormalizer
 
 class SoundGenerator:
@@ -36,3 +38,6 @@ class SoundGenerator:
             signal = librosa.istft(spectrogram, hop_length=self.hop_length)
             # append signal to list
             signals.append(signal)
+        # convert tu numpy array
+        signals = np.asarray(signals)
+        return signals

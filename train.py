@@ -52,7 +52,7 @@ def train(x_train, learning_rate, batch_size, epochs):
         conv_strides=(2, 2, 2, 2, (2, 1)),
         latent_space_dim = 128
     )
-    autoencoder.summary()
+    #autoencoder.summary()
     # compile and train
     autoencoder.compile(learning_rate)
     autoencoder.train(x_train, batch_size, epochs)
@@ -69,4 +69,4 @@ if __name__ == "__main__":
     print('dataset loaded')
     autoencoder = train(x_train, LEARNING_RATE, BATCH_SIZE, EPOCHS)
 
-    #autoencoder.save("models/vae_model")
+    autoencoder.save("models/fsdd_model")

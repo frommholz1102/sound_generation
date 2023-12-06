@@ -7,7 +7,6 @@ from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.losses import MeanSquaredError
 
 import tensorflow as tf
-print(tf.executing_eagerly())
 """
 In TF.2.x the KL-loss leads to problems with eager execution.
 This post explains how to solvew them by writing custim layers:
@@ -15,7 +14,6 @@ https://linux-blog.anracom.com/2022/05/23/variational-autoencoder-with-tensorflo
 """
 tf.compat.v1.disable_eager_execution()
 #tf.python.framework.ops.disable_eager_execution()
-print(tf.executing_eagerly())
 
 class VAE:
     """
