@@ -321,3 +321,4 @@ if __name__ == "__main__":
         conv_strides=(1, 2, 2, 1),
         latent_space_dim=2
     )
+    autoencoder.summary()
