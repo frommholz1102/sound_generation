@@ -41,22 +41,23 @@ class VAE(nn.Module):
 
         # high-level build method
         self._build()
-        #self.summary()
+        self.summary()
 
     def summary(self):
         print("Encoder Summary:")
+        print('Input shape: ', self.input_shape)
         torchsummary.summary(self.encoder, input_size=self.input_shape)
 
         print()
         print("Bottleneck Summary:")
         test_input = torch.zeros(1, self._shape_after_flatten)
-        print('Shape before bottleneck: ', test_input.size())
+        print('Shape after flatten: ', test_input.size())
         test_output = self.mu(test_input)
         print('Shape after bottleneck: ', test_output.size())
 
         print()
         print("Decoder Summary:")
-        torchsummary.summary(self.decoder, input_size=(1,64,7,7))
+        torchsummary.summary(self.decoder, input_size=self._shape_before_bottleneck[1:])
         
 
     
@@ -183,10 +184,16 @@ class VAE(nn.Module):
         encoder = nn.Sequential(*encoder_layers)  # Create encoder model
         output = encoder(dummy_input)  # Pass the dummy input through the layer
         self._shape_before_bottleneck =output.size()  # Get the shape of the output tensor
+        print('shape before bottleneck: ', self._shape_before_bottleneck)
         self._shape_after_flatten = torch.prod(torch.tensor(output.size()[1:]))
 
 
     def encode(self, x):
+
+        print('Debugging Encoder')
+        for name, param in self.encoder.named_parameters():
+            print(name, param.size())
+
         x = self.encoder(x)
         mu = self.mu(x)
         logvar = self.log_var(x)
@@ -231,20 +238,24 @@ class VAE(nn.Module):
         return x
 
 
-    def _conv_transpose_block(self, in_channels, out_channels, kernel_size, stride):
+    def _conv_transpose_block(self, in_channels, out_channels, kernel_size, stride, add_out_padding=False):
         """
         Equivalent to conv_block but with Conv2DTranspose.
         """
 
-        print(in_channels, out_channels)
 
-        padding = (kernel_size - 1) // 2 
+        padding = (kernel_size - 1) // 2
+        if add_out_padding:
+            output_padding = 1
+        else:
+            output_padding = 0
         conv_transpose_layer = nn.ConvTranspose2d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride, 
-            padding=padding
+            padding=padding, 
+            output_padding=output_padding
         )
         relu = nn.ReLU()
         batch_norm = nn.BatchNorm2d(out_channels)
@@ -258,29 +269,36 @@ class VAE(nn.Module):
     def _add_conv_transpose_blocks(self):
         
         # first in_channel is the last shape before bottleneck
-        in_channels = self._shape_before_bottleneck[0]
-        print('decoder input shape: ', in_channels)
+        in_channels = self._shape_before_bottleneck[1]
         # define layer list
         decoder_layers = []
 
         # go through indices of self.conv_filters in reverse order
         # only go to 1 because the last layer is only conv_transpose (not a block)
         for layer_index in range(len(self.conv_filters)-1, 0, -1):
-            print(layer_index)
+            print('layer index: ', layer_index)
+            print('parameters: ', in_channels, self.conv_filters[layer_index], self.conv_kernels[layer_index], self.conv_strides[layer_index])
+
+            # output padding==1 can only be done if stride is not 1
+            if layer_index == 3:
+                do_out_padding = False
+            else:
+                do_out_padding = True
             # append conv_transpose block
             decoder_layers.append(
                 self._conv_transpose_block(
                     in_channels,
                     self.conv_filters[layer_index],
                     self.conv_kernels[layer_index],
-                    self.conv_strides[layer_index]
+                    self.conv_strides[layer_index], 
+                    add_out_padding=do_out_padding
                 )
             )
             # next in_channels is the current conv_filter (out_channels)
             in_channels = self.conv_filters[layer_index]
-        print('for loop is done, in_channels = ', in_channels)
         # add last layer (transpose only)
         padding = (self.conv_kernels[0] - 1) // 2 
+        print('parameters: ', in_channels, 1, self.conv_kernels[0], self.conv_strides[0])
         decoder_layers.append(
             nn.ConvTranspose2d(
                 in_channels=in_channels,
@@ -294,6 +312,11 @@ class VAE(nn.Module):
     
 
     def decode(self, z):
+
+        print('Debugging Decoder')
+        for name, param in self.decoder.named_parameters():
+            print(name, param.size())
+
         x = self.decoder(z)
         return x
     
@@ -323,6 +346,6 @@ if __name__ == "__main__":
     )
 
     dummy_input = torch.zeros(1, 1, 28, 28)
-    dummy_output = vae(dummy_input)
-    print(dummy_output.shape)
+    #dummy_output = vae(dummy_input)
+    #print(dummy_output.shape)
 
