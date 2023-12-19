@@ -62,7 +62,10 @@ class VAE(nn.Module):
 
     
     def compile(self, learning_rate=0.0001):
-        pass
+        # define adam optimizer with passed lr
+        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
+        # define loss function
+        loss_function = self._calculate_combined_loss()
 
 
     def train(self, x_train, batch_size, num_epochs):
@@ -86,7 +89,14 @@ class VAE(nn.Module):
 
 
     def reconstruct(self, images):
-        pass
+        # get latent representations
+        mu, logvar = self.encoder(images)
+        latent_representations = self.sample_from_normal_distribution(mu, logvar)
+        # reconstruct images
+        decoder_input = self.reshape_before_decoder(latent_representations)
+        reconstructed_images = self.decoder(decoder_input)
+
+        return reconstructed_images, latent_representations
     
 
     @classmethod
@@ -106,8 +116,6 @@ class VAE(nn.Module):
     def _calculate_kl_loss(self, y_target, y_predicted):
         pass
         
-    def get_vae_loss(self, y_target, y_predicted):
-        pass
 
 
     def _build(self):
@@ -189,11 +197,6 @@ class VAE(nn.Module):
 
 
     def encode(self, x):
-
-        print('Debugging Encoder')
-        for name, param in self.encoder.named_parameters():
-            print(name, param.size())
-
         x = self.encoder(x)
         mu = self.mu(x)
         logvar = self.log_var(x)
@@ -276,9 +279,6 @@ class VAE(nn.Module):
         # go through indices of self.conv_filters in reverse order
         # only go to 1 because the last layer is only conv_transpose (not a block)
         for layer_index in range(len(self.conv_filters)-1, 0, -1):
-            print('layer index: ', layer_index)
-            print('parameters: ', in_channels, self.conv_filters[layer_index], self.conv_kernels[layer_index], self.conv_strides[layer_index])
-
             # output padding==1 can only be done if stride is not 1
             if layer_index == 3:
                 do_out_padding = False
@@ -298,7 +298,6 @@ class VAE(nn.Module):
             in_channels = self.conv_filters[layer_index]
         # add last layer (transpose only)
         padding = (self.conv_kernels[0] - 1) // 2 
-        print('parameters: ', in_channels, 1, self.conv_kernels[0], self.conv_strides[0])
         decoder_layers.append(
             nn.ConvTranspose2d(
                 in_channels=in_channels,
@@ -312,26 +311,18 @@ class VAE(nn.Module):
     
 
     def decode(self, z):
-
-        print('Debugging Decoder')
-        for name, param in self.decoder.named_parameters():
-            print(name, param.size())
-
         x = self.decoder(z)
         return x
     
 
-    
     # -------------- AUTOENCODER ----------------
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.sample_from_normal_distribution(mu, logvar)
-        # reshape cannot be done in forward method because it is not a layer
         print('z shape: ', z.size())
+        # reshape cannot be done in forward method because it is not a layer
         decoder_input = self.reshape_before_decoder(z)
-        print('decoder input shape: ', decoder_input.size())
         model_output = self.decode(decoder_input)
-        print('model output shape: ', model_output.size())
         return model_output
 
 
@@ -345,7 +336,7 @@ if __name__ == "__main__":
         latent_space_dim=2
     )
 
-    dummy_input = torch.zeros(1, 1, 28, 28)
-    #dummy_output = vae(dummy_input)
-    #print(dummy_output.shape)
+    # dummy_input = torch.zeros(1, 1, 28, 28)
+    # dummy_output = vae(dummy_input)
+    # print(dummy_output.shape)
 
