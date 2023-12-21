@@ -6,6 +6,7 @@ import torch
 import torchsummary
 import torch.nn as nn
 import torch.nn.functional as F
+import lightning as pl
 
 
 from utils import VAE_Loss
@@ -14,9 +15,9 @@ from utils import VAE_Loss
 print('CUDA available: ', torch.cuda.is_available())
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class VAE(nn.Module):
+class VAE(pl.LightningModule):
     """
-    Pytorch implementation of VAE
+    Pytorch (lightning) implementation of VAE
     """
 
     # Conv parameters are going to be lists (one value for each layer)
@@ -25,13 +26,15 @@ class VAE(nn.Module):
                 conv_filters,
                 conv_kernels,
                 conv_strides,
-                latent_space_dim):
+                latent_space_dim, 
+                learning_rate=0.0001):
         super(VAE, self).__init__()
         self.input_shape = input_shape # [1, 28, 28]
         self.conv_filters = conv_filters # [2, 4, 8]
         self.conv_kernels = conv_kernels # [3, 5, 3]
         self.conv_strides = conv_strides # [1, 2, 2]
         self.latent_space_dim = latent_space_dim # 2
+        self.learning_rate = learning_rate
 
         # Define components in separate build functions
         self.encoder = None
@@ -71,17 +74,6 @@ class VAE(nn.Module):
         torchsummary.summary(self.decoder, input_size=self._shape_before_bottleneck[1:])
         
 
-    def compile(self, learning_rate=0.0001):
-        # define adam optimizer with passed lr
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
-        # define custom VAER loss function
-        loss_function = VAE_Loss(recon_loss_weight=1000000)
-
-
-    def train(self, x_train, batch_size, num_epochs):
-        pass
-
-
     def save(self, save_folder="."):
         self._create_folder_if_it_doesnt_exist(save_folder)
         self._save_weights_optimizer_params(save_folder)
@@ -111,9 +103,18 @@ class VAE(nn.Module):
 
     @classmethod
     def load(cls, save_folder="."):
-        pass
+        # load parameters
+        checkpoint_path = os.path.join(save_folder, "checkpoint.pth")
+        checkpoint = torch.load(checkpoint_path)
+        parameters = checkpoint['parameters']
+        # create model
+        autoencoder = VAE(*parameters)
+        # load weights
+        autoencoder.load_state_dict(checkpoint['model_state_dict'])
+        # load optimizer
+        autoencoder.load_state_dict(checkpoint['optimizer_state_dict'])
+        return autoencoder
 
-    
 
     # -------------- ENCODER ----------------
     def _build_encoder(self):
@@ -317,6 +318,29 @@ class VAE(nn.Module):
         reconstructed_images = self.decoder(decoder_input)
 
         return reconstructed_images, latent_representations
+
+
+    # lightning module methods
+    def training_step(self, batch, batch_idx):
+        # training_step defines the train loop.
+        # it is independent of forward
+        images, target_images = batch
+        mu, logvar = self.encoder(images)
+        z = self.sample_from_normal_distribution(mu, logvar)
+        decoder_input = self.reshape_before_decoder(z)
+        x_hat = self.decoder(decoder_input)
+        loss_function = VAE_Loss(recon_loss_weight=1000000)
+        combined_loss, reconstruction_loss, kl_loss = loss_function(target_images, x_hat, mu, logvar)
+        # Logging all losses to TensorBoard (if installed) by default
+        self.log("train_vae_loss", combined_loss)
+        self.log("train_vae_loss", reconstruction_loss)
+        self.log("train_vae_loss", kl_loss)
+
+        return combined_loss
+
+
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
 
     def forward(self, x):
