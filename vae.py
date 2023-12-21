@@ -1,9 +1,14 @@
 # this script rewrits the VAE model in pytorch
 
+import os
+import pickle
 import torch
 import torchsummary
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+from utils import VAE_Loss
 
 # make sure to use gpu
 print('CUDA available: ', torch.cuda.is_available())
@@ -28,10 +33,10 @@ class VAE(nn.Module):
         self.conv_strides = conv_strides # [1, 2, 2]
         self.latent_space_dim = latent_space_dim # 2
 
-        # Define components of autoencoder
+        # Define components in separate build functions
         self.encoder = None
         self.decoder = None
-        # Build autoencoder model
+        # Build autoencoder model in _build()
         self.model = None
 
         self._num_conv_layers = len(conv_filters)
@@ -43,6 +48,12 @@ class VAE(nn.Module):
         self._build()
         self.summary()
 
+    
+    def _build(self):
+        self._build_encoder()
+        self.build_decoder()
+
+
     def summary(self):
         print("Encoder Summary:")
         print('Input shape: ', self.input_shape)
@@ -52,7 +63,7 @@ class VAE(nn.Module):
         print("Bottleneck Summary:")
         test_input = torch.zeros(1, self._shape_after_flatten)
         print('Shape after flatten: ', test_input.size())
-        test_output = self.mu(test_input)
+        test_output = self.mu_layer(test_input)
         print('Shape after bottleneck: ', test_output.size())
 
         print()
@@ -60,12 +71,11 @@ class VAE(nn.Module):
         torchsummary.summary(self.decoder, input_size=self._shape_before_bottleneck[1:])
         
 
-    
     def compile(self, learning_rate=0.0001):
         # define adam optimizer with passed lr
-        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
-        # define loss function
-        loss_function = self._calculate_combined_loss()
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        # define custom VAER loss function
+        loss_function = VAE_Loss(recon_loss_weight=1000000)
 
 
     def train(self, x_train, batch_size, num_epochs):
@@ -73,55 +83,37 @@ class VAE(nn.Module):
 
 
     def save(self, save_folder="."):
-        pass
+        self._create_folder_if_it_doesnt_exist(save_folder)
+        self._save_weights_optimizer_params(save_folder)
 
 
     def _create_folder_if_it_doesnt_exist(self, folder):
-        pass
-
-
-    def _save_parameters(self, save_folder):
-        pass
+        if not os.path.exists(folder):
+            os.makedirs(folder)
         
 
-    def _save_weights(self, save_folder):
-        pass
+    def _save_weights_optimizer_params(self, save_folder):
+        parameters = [
+            self.input_shape,
+            self.conv_filters,
+            self.conv_kernels,
+            self.conv_strides,
+            self.latent_space_dim
+        ]
+        save_path = os.path.join(save_folder, "checkpoint.pth")
+        save_dict = {
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'parameters': parameters
+            }
+        torch.save(save_dict, save_path)
 
-
-    def reconstruct(self, images):
-        # get latent representations
-        mu, logvar = self.encoder(images)
-        latent_representations = self.sample_from_normal_distribution(mu, logvar)
-        # reconstruct images
-        decoder_input = self.reshape_before_decoder(latent_representations)
-        reconstructed_images = self.decoder(decoder_input)
-
-        return reconstructed_images, latent_representations
-    
 
     @classmethod
     def load(cls, save_folder="."):
         pass
+
     
-
-
-
-
-    def _calculate_combined_loss(self, y_target, y_predicted):
-        pass
-    
-    def _calculate_reconstruction_loss(self, y_target, y_predicted):
-        pass
-    
-    def _calculate_kl_loss(self, y_target, y_predicted):
-        pass
-        
-
-
-    def _build(self):
-        self._build_encoder()
-        self.build_decoder()
-
 
     # -------------- ENCODER ----------------
     def _build_encoder(self):
@@ -139,7 +131,6 @@ class VAE(nn.Module):
         # create mu and log_var layers
         self._add_bottleneck()
 
-    
 
     def _conv_block(self, in_channels, out_channels, kernel_size, stride):
         """
@@ -198,8 +189,8 @@ class VAE(nn.Module):
 
     def encode(self, x):
         x = self.encoder(x)
-        mu = self.mu(x)
-        logvar = self.log_var(x)
+        mu = self.mu_layer(x)
+        logvar = self.log_var_layer(x)
         return mu, logvar
         
 
@@ -207,8 +198,8 @@ class VAE(nn.Module):
     def _add_bottleneck(self):
         # define dense layers for mu and log_var
         # same shape as self.latent_space_dim
-        self.mu = nn.Linear(self._shape_after_flatten, self.latent_space_dim)
-        self.log_var = nn.Linear(self._shape_after_flatten, self.latent_space_dim)
+        self.mu_layer = nn.Linear(self._shape_after_flatten, self.latent_space_dim)
+        self.log_var_layer = nn.Linear(self._shape_after_flatten, self.latent_space_dim)
 
     
     def sample_from_normal_distribution(self, mu, log_var):
@@ -316,10 +307,21 @@ class VAE(nn.Module):
     
 
     # -------------- AUTOENCODER ----------------
+
+    def reconstruct(self, images):
+        # get latent representations
+        mu, logvar = self.encoder(images)
+        latent_representations = self.sample_from_normal_distribution(mu, logvar)
+        # reconstruct images
+        decoder_input = self.reshape_before_decoder(latent_representations)
+        reconstructed_images = self.decoder(decoder_input)
+
+        return reconstructed_images, latent_representations
+
+
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.sample_from_normal_distribution(mu, logvar)
-        print('z shape: ', z.size())
         # reshape cannot be done in forward method because it is not a layer
         decoder_input = self.reshape_before_decoder(z)
         model_output = self.decode(decoder_input)
