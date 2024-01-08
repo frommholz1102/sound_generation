@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,7 +26,7 @@ class VAE_Loss(nn.Module):
         kl_loss = self._calculate_kl_loss(mu, logvar)
         # combine losses (include weight for reconstruction loss)
         combined_loss = self.recon_loss_weight * reconstruction_loss + kl_loss
-        return combined_loss
+        return combined_loss, reconstruction_loss, kl_loss
 
     def _calculate_reconstruction_loss(self, y_target, y_predicted):
         # Simple MSE loss
@@ -37,3 +38,11 @@ class VAE_Loss(nn.Module):
         # Kullback-Leibler divergence loss
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return kl_loss
+    
+
+def get_wav_list(folder_path):
+    """
+    Returns a list of all the .wav files in a folder
+    """
+    files = sorted(os.listdir(folder_path))
+    return [os.path.join(folder_path, f) for f in files]
